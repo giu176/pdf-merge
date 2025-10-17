@@ -74,7 +74,15 @@ def run_cli(args: argparse.Namespace) -> None:
 
 
 def run_gui() -> None:
-    from gui import launch_gui
+    try:
+        from gui import launch_gui
+    except ModuleNotFoundError as exc:  # pragma: no cover - depends on system packages
+        if exc.name == "tkinter":
+            raise RuntimeError(
+                "Tkinter is required for the graphical interface but is not installed. "
+                "Install the Tk libraries or run the tool via the command line."
+            ) from exc
+        raise
 
     launch_gui()
 
@@ -84,7 +92,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.gui or not (args.template and args.input and args.output):
-        run_gui()
+        try:
+            run_gui()
+        except RuntimeError as exc:  # pragma: no cover - CLI convenience
+            parser.error(str(exc))
         return 0
 
     try:
