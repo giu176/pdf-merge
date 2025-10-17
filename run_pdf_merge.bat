@@ -2,7 +2,7 @@
 setlocal
 
 REM Ensure Debian WSL distribution is installed
-for /f "delims=" %%I in ('wsl.exe -l -q ^| findstr /i "^Debian$"') do set "DEBIAN_INSTALLED=1"
+for /f "delims=" %%I in ('wsl.exe -l -q ^| findstr /i /c:"Debian"') do set "DEBIAN_INSTALLED=1"
 
 if not defined DEBIAN_INSTALLED (
     echo Debian WSL distribution not found. Attempting installation...
