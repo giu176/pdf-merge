@@ -1,62 +1,99 @@
-from PyPDF2 import PdfReader, PdfWriter
-import fitz  # PyMuPDF
-import sys
+"""Command line and GUI entry points for the PDF merge utility."""
 
-def merge_pdf(template_pdf, input_pdf, output_pdf):
-    # Apri i PDF con PyMuPDF
-    template_doc = fitz.open(template_pdf)
-    input_doc = fitz.open(input_pdf)
-    
-    # Crea un nuovo documento PDF
-    writer = fitz.open()
-    
-    # Aggiungi tutte le pagine del template
-    for page in template_doc:
-        writer.insert_pdf(template_doc, from_page=page.number, to_page=page.number)
-    
-    # Ottieni l'ultima pagina del template per usarla come sfondo
-    last_template_page = template_doc[-1]
-    last_template_rect = last_template_page.rect
-    
-    # Aggiungi le pagine di input.pdf (ignorando la prima)
-    for i in range(1, len(input_doc)):
-        input_page = input_doc[i]
-        input_rect = input_page.rect
-        
-        # Crea una nuova pagina basata sulla copia dell'ultima pagina del template
-        new_page = writer.new_page(width=last_template_rect.width, height=last_template_rect.height)
-        new_page.show_pdf_page(last_template_rect, template_doc, len(template_doc) - 1)
-        
-        # Calcola il ridimensionamento mantenendo le proporzioni e scalando del 85%
-        scale_x = (last_template_rect.width / input_rect.width) * 0.80
-        scale_y = (last_template_rect.height / input_rect.height) * 0.80
-        scale = min(scale_x, scale_y)  # Mantiene le proporzioni senza distorsioni
-        
-        new_width = input_rect.width * scale
-        new_height = input_rect.height * scale
-        
-        # Calcola il posizionamento centrato tra intestazione e piè di pagina
-        x_offset = (last_template_rect.width - new_width) / 2
-        y_offset = (last_template_rect.height - new_height) / 2
-        
-        # Inserisci la pagina ridimensionata
-        new_page.show_pdf_page(
-            fitz.Rect(x_offset, y_offset, x_offset + new_width, y_offset + new_height),
-            input_doc,
-            i
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+from typing import Iterable
+
+from pdf_processing import MergeConfig, merge_pdfs
+
+
+def _positive_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:  # pragma: no cover - defensive
+        raise argparse.ArgumentTypeError("Scale must be a number") from exc
+
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("Scale must be greater than zero")
+    return parsed
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Merge a template PDF with another document while scaling the content "
+            "and optionally removing the first page. Run without arguments to "
+            "launch the graphical interface."
         )
-    
-    # Rimuovi l'ultima pagina che era stata aggiunta dal template
-    writer.delete_page(len(template_doc) - 1)
-    
-    # Salva il nuovo PDF
-    writer.save(output_pdf)
-    writer.close()
-    
-    print(f"Documento PDF creato: {output_pdf}")
+    )
+    parser.add_argument("template", nargs="?", help="Path to the template PDF")
+    parser.add_argument("input", nargs="?", help="Path to the input PDF")
+    parser.add_argument("output", nargs="?", help="Path to the output PDF")
+    parser.add_argument(
+        "--scale",
+        type=_positive_float,
+        default=85.0,
+        help="Scale percentage applied equally to both axes (default: 85)",
+    )
+    parser.add_argument(
+        "--keep-cover",
+        action="store_false",
+        dest="remove_cover",
+        help="Keep the first page of the input file instead of removing it",
+    )
+    parser.add_argument(
+        "--delete-template",
+        action="store_true",
+        help="Delete the original template file after merging",
+    )
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="Force the graphical interface even if arguments are supplied",
+    )
+    return parser
+
+
+def run_cli(args: argparse.Namespace) -> None:
+    if not args.template or not args.input or not args.output:
+        raise ValueError("Template, input and output paths are required for CLI usage")
+
+    config = MergeConfig(
+        template_path=Path(args.template),
+        input_path=Path(args.input),
+        output_path=Path(args.output),
+        scale_percent=args.scale,
+        remove_first_page=args.remove_cover,
+        delete_template=args.delete_template,
+    )
+    merge_pdfs(config)
+    print(f"Documento PDF creato: {config.output_path}")
+
+
+def run_gui() -> None:
+    from gui import launch_gui
+
+    launch_gui()
+
+
+def main(argv: Iterable[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    if args.gui or not (args.template and args.input and args.output):
+        run_gui()
+        return 0
+
+    try:
+        run_cli(args)
+    except Exception as exc:  # pragma: no cover - CLI convenience
+        parser.error(str(exc))
+    return 0
+
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4:
-        print("Uso: python script.py template.pdf input.pdf output.pdf")
-    else:
-        merge_pdf(sys.argv[1], sys.argv[2], sys.argv[3])
+    raise SystemExit(main(sys.argv[1:]))
+
