@@ -12,6 +12,8 @@ APT_PACKAGES=(
     python3
     python3-pip
     python3-venv
+    python3-tk
+    tk
     poppler-utils
     pdftk-java
 )
