@@ -23,6 +23,10 @@ class PDFMergeApp:
 
         self._build_layout()
 
+        self.template_var.trace_add("write", self._update_delete_template_state)
+        self.output_var.trace_add("write", self._update_delete_template_state)
+        self._update_delete_template_state()
+
     def _build_layout(self) -> None:
         main_frame = tk.Frame(self.master, padx=10, pady=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -69,11 +73,12 @@ class PDFMergeApp:
             text="Remove first page from input",
             variable=self.remove_cover_var,
         ).pack(anchor="w")
-        tk.Checkbutton(
+        self.delete_template_checkbutton = tk.Checkbutton(
             options_frame,
             text="Delete template after merge",
             variable=self.delete_template_var,
-        ).pack(anchor="w")
+        )
+        self.delete_template_checkbutton.pack(anchor="w")
 
         action_frame = tk.Frame(main_frame)
         action_frame.grid(row=5, column=0, columnspan=3, pady=(15, 0))
@@ -99,7 +104,7 @@ class PDFMergeApp:
     def _select_template(self) -> None:
         path = filedialog.askopenfilename(
             title="Select template PDF",
-            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            filetypes=[("PDF files", ("*.pdf", "*.PDF")), ("All files", "*.*")],
         )
         if path:
             self.template_var.set(path)
@@ -109,7 +114,7 @@ class PDFMergeApp:
     def _select_input(self) -> None:
         path = filedialog.askopenfilename(
             title="Select input PDF",
-            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            filetypes=[("PDF files", ("*.pdf", "*.PDF")), ("All files", "*.*")],
         )
         if path:
             self.input_var.set(path)
@@ -118,7 +123,7 @@ class PDFMergeApp:
         path = filedialog.asksaveasfilename(
             title="Select output PDF",
             defaultextension=".pdf",
-            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            filetypes=[("PDF files", ("*.pdf", "*.PDF")), ("All files", "*.*")],
         )
         if path:
             self.output_var.set(path)
@@ -151,6 +156,26 @@ class PDFMergeApp:
             return
 
         messagebox.showinfo("Success", f"PDF created at\n{config.output_path}")
+
+    def _update_delete_template_state(self, *_) -> None:
+        template_raw = self.template_var.get().strip()
+        output_raw = self.output_var.get().strip()
+
+        if template_raw and output_raw:
+            template_path = Path(template_raw).expanduser()
+            output_path = Path(output_raw).expanduser()
+            try:
+                same_file = template_path.resolve(strict=False) == output_path.resolve(strict=False)
+            except Exception:
+                same_file = str(template_path) == str(output_path)
+        else:
+            same_file = False
+
+        if same_file:
+            self.delete_template_var.set(True)
+            self.delete_template_checkbutton.config(state=tk.DISABLED)
+        else:
+            self.delete_template_checkbutton.config(state=tk.NORMAL)
 
 
 def launch_gui() -> None:
