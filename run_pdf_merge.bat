@@ -1,59 +1,28 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-REM Ensure Debian WSL distribution is installed
-set "DEBIAN_INSTALLED="
-for /f "usebackq tokens=* delims=" %%I in (`wsl.exe -l -q 2^>nul`) do (
-    set "DISTRO=%%I"
-    call :CHECK_DEBIAN_FROM_LIST
-)
-
-if not defined DEBIAN_INSTALLED (
-    echo Debian WSL distribution not found. Attempting installation...
-    wsl.exe --install -d Debian
-    if errorlevel 1 (
-        REM Installation may fail if the distribution already exists. Re-check before exiting.
-        for /f "usebackq tokens=* delims=" %%I in (`wsl.exe -l -q 2^>nul`) do (
-            set "DISTRO=%%I"
-            call :CHECK_DEBIAN_FROM_LIST
-        )
-        if not defined DEBIAN_INSTALLED (
-            echo Failed to install Debian. Please install WSL Debian manually and rerun this script.
-            pause
-            exit /b 1
-        )
-    )
-    if not defined DEBIAN_INSTALLED (
-        echo Debian installation initiated. If prompted, please restart your computer and rerun this script.
-        pause
-        exit /b 0
-    )
-)
-
-REM Clone repository if missing and run install script
+REM Ensure the repository exists and is up to date before launching the GUI
 wsl.exe -d Debian -e /bin/bash -lc "\
-    if [ ! -d /home/pdf-merge ]; then \
-        git clone https://github.com/giu176/pdf-merge.git /home/pdf-merge; \
-    fi && \
-    cd /home/pdf-merge && \
-    if [ -x install.sh ]; then ./install.sh; else bash install.sh; fi && \
-    if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi && \
+    set -euo pipefail; \
+    REPO_DIR=/home/pdf-merge; \
+    UPDATED=0; \
+    if [ ! -d \"$REPO_DIR/.git\" ]; then \
+        git clone https://github.com/giu176/pdf-merge.git \"$REPO_DIR\"; \
+        UPDATED=1; \
+    else \
+        cd \"$REPO_DIR\"; \
+        git remote get-url origin >/dev/null 2>&1 || git remote add origin https://github.com/giu176/pdf-merge.git; \
+        git fetch origin; \
+        if git status -sb 2>/dev/null | grep -q '\\[behind'; then \
+            git pull --ff-only; \
+            UPDATED=1; \
+        fi; \
+    fi; \
+    cd \"$REPO_DIR\"; \
+    if [ $UPDATED -eq 1 ]; then \
+        if [ -x install.sh ]; then ./install.sh; else bash install.sh; fi; \
+    fi; \
+    if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi; \
     python3 pdf.py"
 
 pause
-
-goto :EOF
-
-:CHECK_DEBIAN_FROM_LIST
-set "LINE=!DISTRO!"
-if not defined LINE goto :EOF
-for /f "tokens=* delims= " %%J in ("!LINE!") do set "LINE=%%J"
-if not defined LINE goto :EOF
-if "!LINE:~0,1!"=="*" (
-    set "LINE=!LINE:~1!"
-    for /f "tokens=* delims= " %%J in ("!LINE!") do set "LINE=%%J"
-)
-for /f "tokens=1 delims=(" %%J in ("!LINE!") do set "LINE=%%J"
-for /f "tokens=* delims= " %%J in ("!LINE!") do set "LINE=%%J"
-if /I "!LINE!"=="Debian" set "DEBIAN_INSTALLED=1"
-goto :EOF
