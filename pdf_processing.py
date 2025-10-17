@@ -57,9 +57,15 @@ def merge_pdfs(config: MergeConfig) -> None:
     output_path = config.output_path
 
     template_path_to_use: Optional[Path] = None
+    needs_temp_copy = (
+        template_path.resolve(strict=False) == output_path.resolve(strict=False)
+    )
 
     try:
-        template_path_to_use = _prepare_template_copy(template_path)
+        if needs_temp_copy:
+            template_path_to_use = _prepare_template_copy(template_path)
+        else:
+            template_path_to_use = template_path
         _merge_documents(
             template_path_to_use,
             input_path,
@@ -77,7 +83,14 @@ def merge_pdfs(config: MergeConfig) -> None:
             template_path_to_use.unlink()
 
         if config.delete_template and template_path.exists():
-            template_path.unlink()
+            used_temp_copy = (
+                template_path_to_use is not None
+                and template_path_to_use != template_path
+            )
+            same_as_output = needs_temp_copy
+
+            if not used_temp_copy and not same_as_output:
+                template_path.unlink()
 
 
 def _merge_documents(
