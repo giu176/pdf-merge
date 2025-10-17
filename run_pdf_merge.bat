@@ -2,26 +2,32 @@
 setlocal EnableDelayedExpansion
 
 REM Ensure Debian WSL distribution is installed
-for /f "delims=" %%I in ('wsl.exe -l -q 2^>nul ^| findstr /i /c:"Debian"') do set "DEBIAN_INSTALLED=1"
-
-if not defined DEBIAN_INSTALLED (
-    for /f "usebackq tokens=*" %%I in (`wsl.exe -l 2^>nul`) do (
-        set "DISTRO=%%I"
-        call :CHECK_DEBIAN
-    )
+set "DEBIAN_INSTALLED="
+for /f "usebackq tokens=* delims=" %%I in (`wsl.exe -l -q 2^>nul`) do (
+    set "DISTRO=%%I"
+    call :CHECK_DEBIAN_FROM_LIST
 )
 
 if not defined DEBIAN_INSTALLED (
     echo Debian WSL distribution not found. Attempting installation...
     wsl.exe --install -d Debian
     if errorlevel 1 (
-        echo Failed to install Debian. Please install WSL Debian manually and rerun this script.
-        pause
-        exit /b 1
+        REM Installation may fail if the distribution already exists. Re-check before exiting.
+        for /f "usebackq tokens=* delims=" %%I in (`wsl.exe -l -q 2^>nul`) do (
+            set "DISTRO=%%I"
+            call :CHECK_DEBIAN_FROM_LIST
+        )
+        if not defined DEBIAN_INSTALLED (
+            echo Failed to install Debian. Please install WSL Debian manually and rerun this script.
+            pause
+            exit /b 1
+        )
     )
-    echo Debian installation initiated. If prompted, please restart your computer and rerun this script.
-    pause
-    exit /b 0
+    if not defined DEBIAN_INSTALLED (
+        echo Debian installation initiated. If prompted, please restart your computer and rerun this script.
+        pause
+        exit /b 0
+    )
 )
 
 REM Clone repository if missing and run install script
@@ -38,7 +44,7 @@ pause
 
 goto :EOF
 
-:CHECK_DEBIAN
+:CHECK_DEBIAN_FROM_LIST
 set "LINE=!DISTRO!"
 if not defined LINE goto :EOF
 for /f "tokens=* delims= " %%J in ("!LINE!") do set "LINE=%%J"
