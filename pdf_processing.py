@@ -32,9 +32,9 @@ class MergeConfig:
 
 
 def _with_template_suffix(path: Path) -> Path:
-    """Return a new path with ``_template`` appended before the suffix."""
+    """Return a new path with ``_temp`` appended before the suffix."""
 
-    return path.with_name(f"{path.stem}_template{path.suffix}")
+    return path.with_name(f"{path.stem}_temp{path.suffix}")
 
 
 def _prepare_template_copy(template_path: Path) -> Path:
