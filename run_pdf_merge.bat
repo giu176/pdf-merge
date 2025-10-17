@@ -1,8 +1,15 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 
 REM Ensure Debian WSL distribution is installed
-for /f "delims=" %%I in ('wsl.exe -l -q ^| findstr /i /c:"Debian"') do set "DEBIAN_INSTALLED=1"
+for /f "delims=" %%I in ('wsl.exe -l -q 2^>nul ^| findstr /i /c:"Debian"') do set "DEBIAN_INSTALLED=1"
+
+if not defined DEBIAN_INSTALLED (
+    for /f "usebackq tokens=*" %%I in (`wsl.exe -l 2^>nul`) do (
+        set "DISTRO=%%I"
+        call :CHECK_DEBIAN
+    )
+)
 
 if not defined DEBIAN_INSTALLED (
     echo Debian WSL distribution not found. Attempting installation...
@@ -28,3 +35,19 @@ wsl.exe -d Debian -e /bin/bash -lc "\
     python3 pdf.py"
 
 pause
+
+goto :EOF
+
+:CHECK_DEBIAN
+set "LINE=!DISTRO!"
+if not defined LINE goto :EOF
+for /f "tokens=* delims= " %%J in ("!LINE!") do set "LINE=%%J"
+if not defined LINE goto :EOF
+if "!LINE:~0,1!"=="*" (
+    set "LINE=!LINE:~1!"
+    for /f "tokens=* delims= " %%J in ("!LINE!") do set "LINE=%%J"
+)
+for /f "tokens=1 delims=(" %%J in ("!LINE!") do set "LINE=%%J"
+for /f "tokens=* delims= " %%J in ("!LINE!") do set "LINE=%%J"
+if /I "!LINE!"=="Debian" set "DEBIAN_INSTALLED=1"
+goto :EOF
