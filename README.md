@@ -43,3 +43,13 @@ paths (additional options are available via `--help`):
 ```bash
 python3 pdf.py template.pdf input.pdf output.pdf
 ```
+
+### Windows shortcut
+
+If you are running the project inside the Debian WSL distribution, you can start
+it from Windows with the provided `run_pdf_merge.bat` script. The batch file
+launches Debian, switches to `/home/pdf-merge`, activates the virtual
+environment when available, and invokes `python3 pdf.py`.
+
+Double-clicking the script (after `install.sh` has created the `.venv`
+directory) opens the application using the existing environment.
