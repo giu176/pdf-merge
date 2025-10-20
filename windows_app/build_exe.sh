@@ -7,6 +7,21 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 export WINEARCH="win64"
 export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
 
+wineprefix_architecture_matches() {
+    local reg_file="${WINEPREFIX}/system.reg"
+    local expected_tag="#arch=${WINEARCH}"
+
+    if [ ! -f "${reg_file}" ]; then
+        return 1
+    fi
+
+    if grep -qxF "${expected_tag}" "${reg_file}"; then
+        return 0
+    fi
+
+    return 1
+}
+
 PY_VERSION="${PY_VERSION:-3.11.5}"
 PY_INSTALLER_URL="https://www.python.org/ftp/python/${PY_VERSION}/python-${PY_VERSION}-amd64.exe"
 TMP_DIR="$(mktemp -d)"
@@ -51,8 +66,22 @@ if ! command -v wine >/dev/null 2>&1; then
     ensure_packages wine64 wine32:i386 winbind cabextract unzip
 fi
 
+if [ -d "${WINEPREFIX}" ] && ! wineprefix_architecture_matches; then
+    current_arch="$(grep -m1 '^#arch=' "${WINEPREFIX}/system.reg" | cut -d= -f2 | tr -d '\r' || true)"
+    if [ -z "${current_arch}" ]; then
+        current_arch="unknown"
+    fi
+    echo "Existing Wine prefix at ${WINEPREFIX} uses architecture '${current_arch}', but '${WINEARCH}' is required. Recreating prefix..." >&2
+    rm -rf "${WINEPREFIX}"
+fi
+
 mkdir -p "${WINEPREFIX}"
-wineboot -i >/dev/null 2>&1 || true
+wineboot -i >/dev/null 2>&1
+
+if ! wineprefix_architecture_matches; then
+    echo "Wine prefix at ${WINEPREFIX} did not initialize with required architecture '${WINEARCH}'." >&2
+    exit 1
+fi
 
 PY_INSTALLER_PATH="${TMP_DIR}/python-installer.exe"
 if [ ! -f "${PY_INSTALLER_PATH}" ]; then
