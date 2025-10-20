@@ -23,6 +23,15 @@ apt_update_once() {
     fi
 }
 
+ensure_i386_architecture() {
+    if ! dpkg --print-foreign-architectures | grep -qx "i386"; then
+        echo "Enabling i386 architecture support..."
+        sudo dpkg --add-architecture i386
+        # Ensure package lists are refreshed for the new architecture on next update.
+        APT_UPDATED=0
+    fi
+}
+
 ensure_packages() {
     apt_update_once
     sudo apt-get install -y --no-install-recommends "$@"
@@ -37,13 +46,9 @@ done
 
 if ! command -v wine >/dev/null 2>&1; then
     echo "Installing Wine and helper packages..."
+    ensure_i386_architecture
     apt_update_once
-    wine_package="wine"
-    if ! apt-cache show "${wine_package}" >/dev/null 2>&1; then
-        echo "${wine_package} not available; falling back to the generic wine package."
-        wine_package="wine"
-    fi
-    ensure_packages "${wine_package}" winbind cabextract unzip
+    ensure_packages wine64 wine32:i386 winbind cabextract unzip
 fi
 
 mkdir -p "${WINEPREFIX}"
