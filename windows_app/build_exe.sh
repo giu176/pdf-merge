@@ -92,6 +92,45 @@ ensure_vulkan_runtime() {
 
 ensure_vulkan_runtime
 
+vulkan_runtime_available() {
+    if command -v ldconfig >/dev/null 2>&1; then
+        if ldconfig -p | grep -q "libvulkan.so.1"; then
+            return 0
+        fi
+    fi
+
+    local lib_paths=(
+        /usr/lib/x86_64-linux-gnu/libvulkan.so.1
+        /usr/lib/i386-linux-gnu/libvulkan.so.1
+        /usr/lib64/libvulkan.so.1
+        /usr/lib/libvulkan.so.1
+    )
+
+    for lib_path in "${lib_paths[@]}"; do
+        if [ -e "${lib_path}" ]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+append_wine_override() {
+    local override="$1"
+
+    if [ -z "${WINEDLLOVERRIDES:-}" ]; then
+        export WINEDLLOVERRIDES="${override}"
+    else
+        export WINEDLLOVERRIDES="${WINEDLLOVERRIDES};${override}"
+    fi
+}
+
+if ! vulkan_runtime_available; then
+    echo "Warning: libvulkan.so.1 could not be found on this system. Disabling Vulkan for Wine." >&2
+    echo "Install libvulkan1 and mesa-vulkan-drivers packages for best performance." >&2
+    append_wine_override "vulkan=b"
+fi
+
 if [ -d "${WINEPREFIX}" ] && ! wineprefix_architecture_matches; then
     current_arch="$(grep -m1 '^#arch=' "${WINEPREFIX}/system.reg" | cut -d= -f2 | tr -d '\r' || true)"
     if [ -z "${current_arch}" ]; then
