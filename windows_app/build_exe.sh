@@ -38,7 +38,7 @@ done
 if ! command -v wine >/dev/null 2>&1; then
     echo "Installing Wine and helper packages..."
     apt_update_once
-    wine_package="wine32"
+    wine_package="wine"
     if ! apt-cache show "${wine_package}" >/dev/null 2>&1; then
         echo "${wine_package} not available; falling back to the generic wine package."
         wine_package="wine"
