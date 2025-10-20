@@ -83,3 +83,10 @@ so subsequent processing continues to work with POSIX-style paths. If the
 Windows user directory is not mounted (for example, on a non-standard setup),
 the dialogs fall back to the Linux home directory.
 
+### Building a native Windows executable
+
+Instructions for packaging the GUI into a standalone Windows executable (using
+Wine and PyInstaller) are available in [`windows_app/README.md`](windows_app/README.md).
+The helper script described there produces `dist/windows_app.exe`, which can be
+distributed to Windows users who do not have Python installed.
+
