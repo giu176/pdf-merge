@@ -35,6 +35,7 @@ class PDFMergeApp:
         self.scale_var = tk.DoubleVar(value=85.0)
         self.remove_cover_var = tk.BooleanVar(value=True)
         self.delete_template_var = tk.BooleanVar(value=False)
+        self.append_only_var = tk.BooleanVar(value=False)
 
         self._build_layout()
 
@@ -87,6 +88,11 @@ class PDFMergeApp:
             options_frame,
             text="Remove first page from input",
             variable=self.remove_cover_var,
+        ).pack(anchor="w")
+        tk.Checkbutton(
+            options_frame,
+            text="Append input without modifications",
+            variable=self.append_only_var,
         ).pack(anchor="w")
         self.delete_template_checkbutton = tk.Checkbutton(
             options_frame,
@@ -175,6 +181,7 @@ class PDFMergeApp:
                 scale_percent=self.scale_var.get(),
                 remove_first_page=self.remove_cover_var.get(),
                 delete_template=self.delete_template_var.get(),
+                append_only=self.append_only_var.get(),
             )
         except Exception as exc:
             messagebox.showerror("Invalid configuration", str(exc))

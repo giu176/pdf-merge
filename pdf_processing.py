@@ -25,6 +25,7 @@ class MergeConfig:
     scale_percent: float = 85.0
     remove_first_page: bool = True
     delete_template: bool = False
+    append_only: bool = False
 
     def __post_init__(self) -> None:
         if self.scale_percent <= 0:
@@ -66,13 +67,21 @@ def merge_pdfs(config: MergeConfig) -> None:
             template_path_to_use = _prepare_template_copy(template_path)
         else:
             template_path_to_use = template_path
-        _merge_documents(
-            template_path_to_use,
-            input_path,
-            output_path,
-            scale=config.scale_percent / 100.0,
-            remove_first_page=config.remove_first_page,
-        )
+        if config.append_only:
+            _append_documents(
+                template_path_to_use,
+                input_path,
+                output_path,
+                remove_first_page=config.remove_first_page,
+            )
+        else:
+            _merge_documents(
+                template_path_to_use,
+                input_path,
+                output_path,
+                scale=config.scale_percent / 100.0,
+                remove_first_page=config.remove_first_page,
+            )
     finally:
         # Always remove the suffixed copy if we created one.
         if (
@@ -150,6 +159,38 @@ def _merge_documents(
             )
 
         writer.delete_page(len(template_doc) - 1)
+        writer.save(str(output_pdf))
+    finally:
+        writer.close()
+        template_doc.close()
+        input_doc.close()
+
+
+def _append_documents(
+    template_pdf: Path,
+    input_pdf: Path,
+    output_pdf: Path,
+    *,
+    remove_first_page: bool,
+) -> None:
+    output_pdf.parent.mkdir(parents=True, exist_ok=True)
+
+    template_doc = fitz.open(str(template_pdf))
+    input_doc = fitz.open(str(input_pdf))
+
+    writer = fitz.open()
+
+    try:
+        writer.insert_pdf(template_doc)
+
+        start_page = 1 if remove_first_page and len(input_doc) > 0 else 0
+        if start_page < len(input_doc):
+            writer.insert_pdf(
+                input_doc,
+                from_page=start_page,
+                to_page=len(input_doc) - 1,
+            )
+
         writer.save(str(output_pdf))
     finally:
         writer.close()
