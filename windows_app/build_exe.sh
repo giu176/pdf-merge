@@ -128,6 +128,7 @@ append_wine_override() {
 if ! vulkan_runtime_available; then
     echo "Warning: libvulkan.so.1 could not be found on this system. Disabling Vulkan for Wine." >&2
     echo "Install libvulkan1 and mesa-vulkan-drivers packages for best performance." >&2
+    append_wine_override "vulkan-1=d"
     append_wine_override "vulkan=d"
 fi
 
