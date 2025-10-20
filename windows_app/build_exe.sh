@@ -76,7 +76,8 @@ if [ -d "${WINEPREFIX}" ] && ! wineprefix_architecture_matches; then
 fi
 
 mkdir -p "${WINEPREFIX}"
-wineboot -i >/dev/null 2>&1
+echo "Initializing Wine prefix (this may take a moment)..."
+wineboot -i
 
 if ! wineprefix_architecture_matches; then
     echo "Wine prefix at ${WINEPREFIX} did not initialize with required architecture '${WINEARCH}'." >&2
