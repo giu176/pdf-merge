@@ -29,6 +29,8 @@ class PDFMergeApp:
         self.master = master
         self.master.title("PDF Merge Utility")
 
+        self._last_dialog_dir: Path | None = None
+
         self.template_var = tk.StringVar()
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
@@ -123,6 +125,8 @@ class PDFMergeApp:
         tk.Button(parent, text="Browse", command=command).grid(row=row, column=2)
 
     def _dialog_initialdir(self) -> str:
+        if self._last_dialog_dir and self._last_dialog_dir.exists():
+            return str(self._last_dialog_dir)
         return str(_initial_browse_dir())
 
     def _normalize_dialog_path(self, path: str) -> str:
@@ -141,6 +145,12 @@ class PDFMergeApp:
                 return converted
         return path
 
+    def _cache_dialog_dir(self, path: str) -> None:
+        directory = Path(path).expanduser()
+        if not directory.is_dir():
+            directory = directory.parent
+        self._last_dialog_dir = directory
+
     def _select_template(self) -> None:
         path = filedialog.askopenfilename(
             title="Select template PDF",
@@ -149,6 +159,7 @@ class PDFMergeApp:
         )
         if path:
             normalized = self._normalize_dialog_path(path)
+            self._cache_dialog_dir(normalized)
             self.template_var.set(normalized)
             output_path = Path(normalized)
             self.output_var.set(str(output_path))
@@ -160,7 +171,9 @@ class PDFMergeApp:
             initialdir=self._dialog_initialdir(),
         )
         if path:
-            self.input_var.set(self._normalize_dialog_path(path))
+            normalized = self._normalize_dialog_path(path)
+            self._cache_dialog_dir(normalized)
+            self.input_var.set(normalized)
 
     def _select_output(self) -> None:
         path = filedialog.asksaveasfilename(
@@ -170,7 +183,9 @@ class PDFMergeApp:
             initialdir=self._dialog_initialdir(),
         )
         if path:
-            self.output_var.set(self._normalize_dialog_path(path))
+            normalized = self._normalize_dialog_path(path)
+            self._cache_dialog_dir(normalized)
+            self.output_var.set(normalized)
 
     def _on_merge(self) -> None:
         try:
