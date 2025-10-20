@@ -53,3 +53,14 @@ environment when available, and invokes `python3 pdf.py`.
 
 Double-clicking the script (after `install.sh` has created the `.venv`
 directory) opens the application using the existing environment.
+
+#### WSL file dialogs
+
+When the GUI detects that it is running inside WSL it opens file dialogs in the
+Windows user directory (for example `/mnt/c/Users`). Selected Windows-style
+paths are transparently converted to their `/mnt/...` equivalents via
+[`wslpath`](https://learn.microsoft.com/windows/wsl/filesystems#use-the-wslpath-command),
+so subsequent processing continues to work with POSIX-style paths. If the
+Windows user directory is not mounted (for example, on a non-standard setup),
+the dialogs fall back to the Linux home directory.
+
