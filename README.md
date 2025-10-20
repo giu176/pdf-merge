@@ -15,8 +15,7 @@ Linux (WSL), complete the following steps before running the installer:
    Store](https://apps.microsoft.com/detail/9MSVKQC78PK6).
 3. Launch Debian from the Start Menu to finish the initial user setup.
 4. Inside the Debian shell, update the package index, install Git, clone the
-   repository, and launch the installer with the following one-liner (replace
-   `<repository-url>` with the HTTPS or SSH URL of this project):
+   repository, and launch the installer with the following one-liner:
 
    ```bash
    sudo apt update && sudo apt upgrade -y && sudo apt install -y git && \
