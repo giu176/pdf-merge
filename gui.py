@@ -2,11 +2,26 @@
 
 from __future__ import annotations
 
+import os
+import platform
+import subprocess
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
 from pdf_processing import MergeConfig, merge_pdfs
+
+
+_IS_WSL = "microsoft" in platform.release().lower() or bool(os.environ.get("WSL_DISTRO_NAME"))
+
+
+def _initial_browse_dir() -> Path:
+    """Return a sensible starting directory for file dialogs."""
+    if _IS_WSL:
+        windows_home = Path("/mnt/c/Users")
+        if windows_home.exists():
+            return windows_home
+    return Path.home()
 
 
 class PDFMergeApp:
@@ -101,32 +116,55 @@ class PDFMergeApp:
         entry.grid(row=row, column=1, sticky="ew", padx=(5, 5))
         tk.Button(parent, text="Browse", command=command).grid(row=row, column=2)
 
+    def _dialog_initialdir(self) -> str:
+        return str(_initial_browse_dir())
+
+    def _normalize_dialog_path(self, path: str) -> str:
+        if _IS_WSL and len(path) >= 2 and path[1] == ":":
+            try:
+                completed = subprocess.run(
+                    ["wslpath", "-a", path],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except Exception:
+                return path
+            converted = completed.stdout.strip()
+            if converted:
+                return converted
+        return path
+
     def _select_template(self) -> None:
         path = filedialog.askopenfilename(
             title="Select template PDF",
             filetypes=[("PDF files", ("*.pdf", "*.PDF")), ("All files", "*.*")],
+            initialdir=self._dialog_initialdir(),
         )
         if path:
-            self.template_var.set(path)
-            output_path = Path(path)
+            normalized = self._normalize_dialog_path(path)
+            self.template_var.set(normalized)
+            output_path = Path(normalized)
             self.output_var.set(str(output_path))
 
     def _select_input(self) -> None:
         path = filedialog.askopenfilename(
             title="Select input PDF",
             filetypes=[("PDF files", ("*.pdf", "*.PDF")), ("All files", "*.*")],
+            initialdir=self._dialog_initialdir(),
         )
         if path:
-            self.input_var.set(path)
+            self.input_var.set(self._normalize_dialog_path(path))
 
     def _select_output(self) -> None:
         path = filedialog.asksaveasfilename(
             title="Select output PDF",
             defaultextension=".pdf",
             filetypes=[("PDF files", ("*.pdf", "*.PDF")), ("All files", "*.*")],
+            initialdir=self._dialog_initialdir(),
         )
         if path:
-            self.output_var.set(path)
+            self.output_var.set(self._normalize_dialog_path(path))
 
     def _on_merge(self) -> None:
         try:
@@ -185,4 +223,3 @@ def launch_gui() -> None:
 
 
 __all__ = ["launch_gui", "PDFMergeApp"]
-
