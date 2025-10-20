@@ -37,7 +37,13 @@ done
 
 if ! command -v wine >/dev/null 2>&1; then
     echo "Installing Wine and helper packages..."
-    ensure_packages wine-stable winbind cabextract unzip
+    apt_update_once
+    wine_package="wine-stable"
+    if ! apt-cache show "${wine_package}" >/dev/null 2>&1; then
+        echo "${wine_package} not available; falling back to the generic wine package."
+        wine_package="wine"
+    fi
+    ensure_packages "${wine_package}" winbind cabextract unzip
 fi
 
 mkdir -p "${WINEPREFIX}"
