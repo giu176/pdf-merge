@@ -85,6 +85,8 @@ def merge_pdfs(config: MergeConfig) -> None:
         template_path.resolve(strict=False) == output_path.resolve(strict=False)
     )
 
+    drop_first_template_page = False
+
     try:
         if needs_temp_copy:
             template_path_to_use = _prepare_template_copy(template_path)
@@ -98,6 +100,7 @@ def merge_pdfs(config: MergeConfig) -> None:
             )
             if single_page_temp is not None:
                 temporary_paths.append(single_page_temp)
+                drop_first_template_page = True
 
         if config.append_only:
             _append_documents(
@@ -113,6 +116,7 @@ def merge_pdfs(config: MergeConfig) -> None:
                 output_path,
                 scale=config.scale_percent / 100.0,
                 remove_first_page=config.remove_first_page,
+                drop_first_template_page=drop_first_template_page,
             )
     finally:
         # Always remove any temporary templates we created.
@@ -132,6 +136,7 @@ def _merge_documents(
     *,
     scale: float,
     remove_first_page: bool,
+    drop_first_template_page: bool = False,
 ) -> None:
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
 
@@ -182,6 +187,8 @@ def _merge_documents(
             )
 
         writer.delete_page(len(template_doc) - 1)
+        if drop_first_template_page and len(writer) > 0:
+            writer.delete_page(0)
         writer.save(str(output_pdf))
     finally:
         writer.close()
