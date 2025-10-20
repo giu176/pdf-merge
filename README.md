@@ -66,12 +66,16 @@ python3 pdf.py template.pdf input.pdf output.pdf
 ### Windows shortcut
 
 If you are running the project inside the Debian WSL distribution, you can start
-it from Windows with the provided `run_pdf_merge.bat` script. The batch file
-launches Debian, switches to `/home/pdf-merge`, activates the virtual
-environment when available, and invokes `python3 pdf.py`.
+it from Windows with the provided `run_pdf_merge.ps1` PowerShell script. The
+launcher builds a `System.Diagnostics.ProcessStartInfo` for
+`wsl.exe -d Debian -e /bin/bash -lc "cd /home/pdf-merge …"`, ensures the virtual
+environment is activated when available, and invokes `python3 pdf.py` while the
+console window remains hidden.
 
-Double-clicking the script (after `install.sh` has created the `.venv`
-directory) opens the application using the existing environment.
+For convenience, `run_pdf_merge.bat` is kept as a thin shim that simply runs the
+PowerShell script via `powershell.exe -NoProfile -ExecutionPolicy Bypass`. This
+allows double-clicking either file to start the GUI without showing a console
+window (after `install.sh` has created the `.venv` directory).
 
 #### WSL file dialogs
 
