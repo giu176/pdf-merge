@@ -18,6 +18,9 @@ _IS_WSL = "microsoft" in platform.release().lower() or bool(os.environ.get("WSL_
 def _initial_browse_dir() -> Path:
     """Return a sensible starting directory for file dialogs."""
     if _IS_WSL:
+        mnt_root = Path("/mnt")
+        if mnt_root.exists():
+            return mnt_root
         windows_home = Path("/mnt/c/Users")
         if windows_home.exists():
             return windows_home
