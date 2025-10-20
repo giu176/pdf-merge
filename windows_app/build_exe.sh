@@ -66,6 +66,32 @@ if ! command -v wine >/dev/null 2>&1; then
     ensure_packages wine64 wine32:i386 winbind cabextract unzip
 fi
 
+ensure_vulkan_runtime() {
+    local required_packages=(
+        libvulkan1
+        libvulkan1:i386
+        mesa-vulkan-drivers
+        mesa-vulkan-drivers:i386
+    )
+
+    local missing_packages=()
+
+    for pkg in "${required_packages[@]}"; do
+        if ! dpkg -s "${pkg}" >/dev/null 2>&1; then
+            missing_packages+=("${pkg}")
+        fi
+    done
+
+    if [ ${#missing_packages[@]} -gt 0 ]; then
+        echo "Installing Vulkan runtime dependencies for Wine (${missing_packages[*]})..."
+        ensure_i386_architecture
+        apt_update_once
+        ensure_packages "${missing_packages[@]}"
+    fi
+}
+
+ensure_vulkan_runtime
+
 if [ -d "${WINEPREFIX}" ] && ! wineprefix_architecture_matches; then
     current_arch="$(grep -m1 '^#arch=' "${WINEPREFIX}/system.reg" | cut -d= -f2 | tr -d '\r' || true)"
     if [ -z "${current_arch}" ]; then
