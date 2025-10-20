@@ -20,7 +20,7 @@ Linux (WSL), complete the following steps before running the installer:
 
    ```bash
    sudo apt update && sudo apt upgrade -y && sudo apt install -y git && \
-   git clone <repository-url> && cd pdf-merge && sudo ./install.sh
+   git clone https://github.com/giu176/pdf-merge.git && cd pdf-merge && sudo ./install.sh
    ```
 
 ## One-click setup
