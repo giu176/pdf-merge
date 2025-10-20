@@ -2,6 +2,27 @@
 
 Utility for combining PDF templates with generated documents.
 
+## Prerequisites (Windows + WSL)
+
+If you are running the project from Windows via the Windows Subsystem for
+Linux (WSL), complete the following steps before running the installer:
+
+1. Enable the "Windows Subsystem for Linux" and "Virtual Machine Platform"
+   features from **Control Panel → Programs → Turn Windows features on or
+   off**, or run `wsl --install` from an elevated PowerShell session on Windows
+   11 to enable them automatically.
+2. Install the [Debian distribution from the Microsoft
+   Store](https://apps.microsoft.com/detail/9MSVKQC78PK6).
+3. Launch Debian from the Start Menu to finish the initial user setup.
+4. Inside the Debian shell, update the package index, install Git, clone the
+   repository, and launch the installer with the following one-liner (replace
+   `<repository-url>` with the HTTPS or SSH URL of this project):
+
+   ```bash
+   sudo apt update && sudo apt upgrade -y && sudo apt install -y git && \
+   git clone <repository-url> && cd pdf-merge && sudo ./install.sh
+   ```
+
 ## One-click setup
 
 The project includes an installation script that fetches all required system and
