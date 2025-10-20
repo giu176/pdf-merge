@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
-from typing import Optional
+from typing import List, Optional, Tuple
 
 import fitz  # PyMuPDF
 
@@ -50,6 +50,28 @@ def _prepare_template_copy(template_path: Path) -> Path:
     return suffixed_path
 
 
+def _ensure_template_has_multiple_pages(template_path: Path) -> Tuple[Path, Optional[Path]]:
+    """Return a template path guaranteed to contain at least two pages."""
+
+    template_doc = fitz.open(str(template_path))
+    try:
+        if len(template_doc) != 1:
+            return template_path, None
+
+        temp_path = template_path.parent / "template_one_page_temp.pdf"
+        writer = fitz.open()
+        try:
+            writer.insert_pdf(template_doc)
+            writer.insert_pdf(template_doc)
+            writer.save(str(temp_path))
+        finally:
+            writer.close()
+
+        return temp_path, temp_path
+    finally:
+        template_doc.close()
+
+
 def merge_pdfs(config: MergeConfig) -> None:
     """Merge PDFs according to the supplied configuration."""
 
@@ -58,6 +80,7 @@ def merge_pdfs(config: MergeConfig) -> None:
     output_path = config.output_path
 
     template_path_to_use: Optional[Path] = None
+    temporary_paths: List[Path] = []
     needs_temp_copy = (
         template_path.resolve(strict=False) == output_path.resolve(strict=False)
     )
@@ -65,8 +88,17 @@ def merge_pdfs(config: MergeConfig) -> None:
     try:
         if needs_temp_copy:
             template_path_to_use = _prepare_template_copy(template_path)
+            if template_path_to_use != template_path:
+                temporary_paths.append(template_path_to_use)
         else:
             template_path_to_use = template_path
+        if not config.append_only:
+            template_path_to_use, single_page_temp = _ensure_template_has_multiple_pages(
+                template_path_to_use
+            )
+            if single_page_temp is not None:
+                temporary_paths.append(single_page_temp)
+
         if config.append_only:
             _append_documents(
                 template_path_to_use,
@@ -83,22 +115,13 @@ def merge_pdfs(config: MergeConfig) -> None:
                 remove_first_page=config.remove_first_page,
             )
     finally:
-        # Always remove the suffixed copy if we created one.
-        if (
-            template_path_to_use
-            and template_path_to_use != template_path
-            and template_path_to_use.exists()
-        ):
-            template_path_to_use.unlink()
+        # Always remove any temporary templates we created.
+        for temp_path in temporary_paths:
+            if temp_path.exists():
+                temp_path.unlink()
 
         if config.delete_template and template_path.exists():
-            used_temp_copy = (
-                template_path_to_use is not None
-                and template_path_to_use != template_path
-            )
-            same_as_output = needs_temp_copy
-
-            if not used_temp_copy and not same_as_output:
+            if not needs_temp_copy:
                 template_path.unlink()
 
 
