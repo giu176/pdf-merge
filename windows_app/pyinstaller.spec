@@ -1,37 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller build specification for the Windows GUI executable."""
+"""PyInstaller specification for building the Windows executable."""
 
-import sys
-from pathlib import Path
-
-from PyInstaller.utils.hooks import (
-    collect_data_files,
-    collect_dynamic_libs,
-    collect_submodules,
-)
+from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-hiddenimports = collect_submodules("fitz")
-
-datas = collect_data_files("windows_app")
-datas += collect_data_files(
-    "fitz",
-    includes=["**/*.dll", "**/*.pyd", "**/*.dat", "**/*.json"],
-)
-
-binaries = collect_dynamic_libs("fitz")
+fitz_data = collect_all("fitz")
 
 
 a = Analysis(
-    ["windows_app/main.py"],
-    pathex=[str(PROJECT_ROOT)],
-    binaries=binaries,
-    datas=datas,
-    hiddenimports=hiddenimports,
+    ["windows_app/windows_main.py"],
+    pathex=[],
+    binaries=fitz_data[1],
+    datas=fitz_data[0],
+    hiddenimports=fitz_data[2],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -39,25 +21,34 @@ a = Analysis(
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
-    noarchive=False,
 )
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
-    name="windows_app",
+    exclude_binaries=False,
+    name="pdf-merge",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
+    argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="pdf-merge",
 )
