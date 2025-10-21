@@ -28,6 +28,9 @@ class WindowsPDFMergeApp:
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
         self.scale_var = tk.DoubleVar(value=85.0)
+        self.scale_display_var = tk.StringVar(
+            value=f"{int(self.scale_var.get())}%"
+        )
         self.remove_first_page_var = tk.BooleanVar(value=True)
         self.delete_template_var = tk.BooleanVar(value=False)
         self.append_only_var = tk.BooleanVar(value=False)
@@ -68,6 +71,9 @@ class WindowsPDFMergeApp:
         )
 
         ttk.Label(container, text="Scale (%)").grid(column=0, row=3, sticky="w")
+        ttk.Label(container, textvariable=self.scale_display_var).grid(
+            column=1, row=3, sticky="w"
+        )
         scale = ttk.Scale(
             container,
             variable=self.scale_var,
@@ -127,6 +133,7 @@ class WindowsPDFMergeApp:
     def _wire_events(self) -> None:
         self.template_var.trace_add("write", self._update_delete_template_state)
         self.output_var.trace_add("write", self._update_delete_template_state)
+        self.scale_var.trace_add("write", self._on_scale_changed)
 
     # ------------------------------------------------------------------
     # Dialog helpers
@@ -167,6 +174,10 @@ class WindowsPDFMergeApp:
     # ------------------------------------------------------------------
     # Business logic
     # ------------------------------------------------------------------
+    def _on_scale_changed(self, *_) -> None:
+        value = int(round(float(self.scale_var.get())))
+        self.scale_display_var.set(f"{value}%")
+
     def _update_delete_template_state(self, *_) -> None:
         template = self.template_var.get().strip()
         output = self.output_var.get().strip()
