@@ -40,7 +40,7 @@ class WindowsPDFMergeApp:
     # Layout helpers
     # ------------------------------------------------------------------
     def _build_layout(self) -> None:
-        padding = {"padx": 10, "pady": 6}
+        padding = (10, 6)
 
         container = ttk.Frame(self.root, padding=padding)
         container.grid(column=0, row=0, sticky="nsew")
