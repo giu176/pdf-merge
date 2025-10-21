@@ -1,72 +1,75 @@
-# Windows application wrapper
+# Windows Application Bundle
 
-This package contains the Windows specific launch code for the PDF merge tool.
-It reuses the shared PDF manipulation logic from `pdf_processing.py` and exposes
-it through a lightweight Tkinter interface that can be packaged for Windows
-users.
+This directory contains a Windows-native launcher for the PDF merge utility.
+It provides both a command line interface and a graphical interface that mirror
+the behaviour of the cross-platform scripts in the repository.  The application
+can be packaged into a single self-contained `.exe` so that it runs on a vanilla
+Windows installation without requiring Python or any other external runtime.
 
-## Shared logic
+## Features
 
-The UI constructs a `pdf_processing.MergeConfig` instance and invokes
-`pdf_processing.merge_pdfs()` to perform the merge. By relying on the common
-module, new behaviour that is added to the core logic automatically becomes
-available in the Windows desktop build without having to duplicate it.
+* Launch the same Tk-based graphical interface that ships with the project.
+* Run the full command line workflow when template, input and output paths are
+  supplied.
+* Support for scaling pages, removing the first input page, optionally deleting
+  the template once the merge is complete and performing append-only merges.
+* Automatic detection of invalid configurations with descriptive error
+  messages.
 
-## Running locally
+## Building the executable
 
-You can exercise the Windows GUI entry point directly from the repository root:
+1. Ensure you have Python 3.11 (or newer) installed on Windows together with
+   the project dependencies:
 
-```bash
-python -m windows_app
+   ```powershell
+   py -3.11 -m pip install -r requirements.txt
+   ```
+
+2. Install PyInstaller, which is used to create the standalone executable:
+
+   ```powershell
+   py -3.11 -m pip install pyinstaller
+   ```
+
+3. Run the build helper script from the repository root.  It wraps PyInstaller
+   with the correct options to bundle PyMuPDF and the project modules:
+
+   ```powershell
+   py -3.11 windows_app\build_exe.py
+   ```
+
+   The resulting executable is placed in `windows_app\dist\pdf-merge.exe`.
+
+The generated binary bundles the Python interpreter, the Tk GUI toolkit and the
+PyMuPDF native libraries so that the program can be executed directly.  Simply
+copy the produced `pdf-merge.exe` to the target machine and run it.
+
+## Manual PyInstaller invocation
+
+If you prefer to run PyInstaller yourself, execute the following from the
+repository root:
+
+```powershell
+py -3.11 -m PyInstaller ^
+    --noconfirm ^
+    --clean ^
+    --onefile ^
+    --windowed ^
+    --name pdf-merge ^
+    --collect-all fitz ^
+    windows_app\windows_main.py
 ```
 
-## Building the Windows executable
+The `--collect-all fitz` option instructs PyInstaller to include the binary
+resources shipped with PyMuPDF so that no extra installation steps are needed.
 
-The repository provides an automated build that runs PyInstaller inside a Wine
-prefix. The helper script downloads a Windows edition of Python, installs the
-required dependencies (`PyMuPDF` and `pyinstaller`), and then executes the
-packaging step with the bundled `pyinstaller.spec` file.
+## Running the executable
 
-### Prerequisites
+Double-clicking `pdf-merge.exe` launches the graphical interface.  To use the
+command line interface, open `cmd.exe` or PowerShell and run:
 
-- Debian/Ubuntu environment with `curl`, `rsync`, and `sudo` available.
-- Internet access to download the Windows Python installer and Python packages.
-
-### Step-by-step
-
-Run the build script from the repository root:
-
-```bash
-./windows_app/build_exe.sh
+```powershell
+pdf-merge.exe --help
 ```
 
-The script will:
-
-1. Install Wine (if missing) so that Windows binaries can be executed.
-2. Download and install a Windows Python distribution inside `~/.wine`.
-3. Install `pyinstaller` and `PyMuPDF` inside the Wine-managed Python
-   environment.
-4. Copy the current project into the Wine prefix.
-5. Invoke PyInstaller with `windows_app/pyinstaller.spec`, which collects the
-   `PyMuPDF` runtime libraries and any packaged GUI assets.
-
-When the build finishes, the Windows executable is available at:
-
-```
-~/.wine/drive_c/pdf-merge/dist/windows_app.exe
-```
-
-The script also copies the binary back to the repository as `dist/windows_app.exe`
-for convenience.
-
-### Manual invocation
-
-If you already have a Windows Python environment set up, you can trigger the
-build manually by running PyInstaller against the provided spec file:
-
-```bash
-pyinstaller --distpath dist --workpath build windows_app/pyinstaller.spec
-```
-
-The spec embeds the GUI resources and ensures that all `PyMuPDF` binaries are
-bundled with the final executable.
+Arguments are identical to those supported by `pdf.py` at the project root.

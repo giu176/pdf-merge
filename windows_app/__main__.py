@@ -1,7 +1,6 @@
-"""Module execution entry point for ``windows_app``."""
+"""Allow ``python -m windows_app`` to launch the Windows entry point."""
 
-from .main import main
-
+from .runner import main
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
