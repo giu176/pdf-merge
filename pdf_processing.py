@@ -10,9 +10,62 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
+
+
+_POSITION_ALIGNMENTS: Dict[str, int] = {
+    "top_left": fitz.TEXT_ALIGN_LEFT,
+    "top_center": fitz.TEXT_ALIGN_CENTER,
+    "top_right": fitz.TEXT_ALIGN_RIGHT,
+    "bottom_left": fitz.TEXT_ALIGN_LEFT,
+    "bottom_center": fitz.TEXT_ALIGN_CENTER,
+    "bottom_right": fitz.TEXT_ALIGN_RIGHT,
+}
+
+_MM_TO_POINTS = 72.0 / 25.4
+
+
+@dataclass
+class PageNumberingConfig:
+    """Configuration options controlling page enumeration output."""
+
+    position: str = "bottom_right"
+    font_path: Path | str | None = None
+    font_size: float = 11.0
+    margin_top_mm: float = 10.0
+    margin_bottom_mm: float = 10.0
+    margin_left_mm: float = 10.0
+    margin_right_mm: float = 10.0
+
+    def __post_init__(self) -> None:
+        valid_positions = {
+            "top_left",
+            "top_center",
+            "top_right",
+            "bottom_left",
+            "bottom_center",
+            "bottom_right",
+        }
+        if self.position not in valid_positions:
+            raise ValueError(f"Unsupported page number position: {self.position}")
+
+        if isinstance(self.font_path, str):
+            self.font_path = Path(self.font_path).expanduser()
+        if isinstance(self.font_path, Path):
+            if not self.font_path.exists():
+                raise ValueError(f"Font file does not exist: {self.font_path}")
+        elif self.font_path is not None:
+            raise TypeError("font_path must be a path, string or None")
+
+        if self.font_size <= 0:
+            raise ValueError("font_size must be greater than zero")
+
+        for name in ("margin_top_mm", "margin_bottom_mm", "margin_left_mm", "margin_right_mm"):
+            value = getattr(self, name)
+            if value < 0:
+                raise ValueError(f"{name} must be zero or positive")
 
 
 @dataclass
@@ -26,10 +79,15 @@ class MergeConfig:
     remove_first_page: bool = True
     delete_template: bool = False
     append_only: bool = False
+    enumerate_pages: bool = False
+    page_numbering: PageNumberingConfig | None = None
 
     def __post_init__(self) -> None:
         if self.scale_percent <= 0:
             raise ValueError("scale_percent must be greater than zero")
+
+        if self.enumerate_pages and self.page_numbering is None:
+            raise ValueError("Page numbering options are required when enumerate_pages is True")
 
 
 def _with_template_suffix(path: Path) -> Path:
@@ -127,6 +185,9 @@ def merge_pdfs(config: MergeConfig) -> None:
         if config.delete_template and template_path.exists():
             if not needs_temp_copy:
                 template_path.unlink()
+
+    if config.enumerate_pages and config.page_numbering is not None:
+        _enumerate_output_pdf(output_path, config.page_numbering)
 
 
 def _merge_documents(
@@ -226,4 +287,62 @@ def _append_documents(
         writer.close()
         template_doc.close()
         input_doc.close()
+
+
+def _mm_to_points(value: float) -> float:
+    return value * _MM_TO_POINTS
+
+
+def _numbering_rect(page_rect: fitz.Rect, config: PageNumberingConfig) -> fitz.Rect:
+    left = _mm_to_points(config.margin_left_mm)
+    right = _mm_to_points(config.margin_right_mm)
+    top = _mm_to_points(config.margin_top_mm)
+    bottom = _mm_to_points(config.margin_bottom_mm)
+
+    width = page_rect.width - left - right
+    if width <= 0:
+        raise ValueError("Margins leave no horizontal space for page numbers")
+
+    box_height = config.font_size * 1.5
+    if config.position.startswith("top"):
+        y0 = top
+        y1 = y0 + box_height
+    else:
+        y1 = page_rect.height - bottom
+        y0 = y1 - box_height
+
+    if y0 < 0 or y1 > page_rect.height or y1 <= y0:
+        raise ValueError("Margins leave no vertical space for page numbers")
+
+    return fitz.Rect(left, y0, page_rect.width - right, y1)
+
+
+def _enumerate_output_pdf(output_pdf: Path, config: PageNumberingConfig) -> None:
+    temp_path = output_pdf.with_name(f"{output_pdf.stem}_temp_enumerating{output_pdf.suffix}")
+    shutil.copy2(output_pdf, temp_path)
+
+    doc = fitz.open(str(temp_path))
+    try:
+        align = _POSITION_ALIGNMENTS[config.position]
+        font_kwargs: Dict[str, object]
+        if config.font_path is not None:
+            font_kwargs = {"fontfile": str(config.font_path)}
+        else:
+            font_kwargs = {"fontname": "helv"}
+
+        for index, page in enumerate(doc, start=1):
+            rect = _numbering_rect(page.rect, config)
+            page.insert_textbox(
+                rect,
+                str(index),
+                fontsize=config.font_size,
+                align=align,
+                **font_kwargs,
+            )
+
+        doc.save(str(output_pdf))
+    finally:
+        doc.close()
+        if temp_path.exists():
+            temp_path.unlink()
 
