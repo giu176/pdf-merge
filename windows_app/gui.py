@@ -52,17 +52,21 @@ class WindowsPDFMergeApp:
         self.status_var = tk.StringVar(value="Select the PDF files to merge")
 
         self.enumerate_pages_var = tk.BooleanVar(value=False)
-        self.enumerate_position_var = tk.StringVar(value=_PAGE_POSITION_CHOICES[-1])
+        self.enumerate_position_var = tk.StringVar(value="Bottom center")
         self.enumerate_font_size_var = tk.DoubleVar(value=11.0)
-        self.enumerate_margin_top_var = tk.DoubleVar(value=10.0)
-        self.enumerate_margin_bottom_var = tk.DoubleVar(value=10.0)
-        self.enumerate_margin_left_var = tk.DoubleVar(value=10.0)
-        self.enumerate_margin_right_var = tk.DoubleVar(value=10.0)
+        self.enumerate_margin_top_var = tk.DoubleVar(value=20.0)
+        self.enumerate_margin_bottom_var = tk.DoubleVar(value=20.0)
+        self.enumerate_margin_left_var = tk.DoubleVar(value=25.0)
+        self.enumerate_margin_right_var = tk.DoubleVar(value=25.0)
 
         self._font_options = self._load_font_options()
-        default_font = "Helvetica"
-        if default_font not in self._font_options and self._font_options:
-            default_font = next(iter(self._font_options))
+        preferred_font = "Calibri Regular"
+        if preferred_font in self._font_options:
+            default_font = preferred_font
+        else:
+            default_font = "Helvetica"
+            if default_font not in self._font_options and self._font_options:
+                default_font = next(iter(self._font_options))
         self.enumerate_font_var = tk.StringVar(value=default_font)
 
         self._page_number_widgets: list[tk.Widget] = []
