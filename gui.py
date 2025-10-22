@@ -6,10 +6,12 @@ import os
 import platform
 import subprocess
 import tkinter as tk
+import tkinter.ttk as ttk
+from collections import OrderedDict
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
-from pdf_processing import MergeConfig, merge_pdfs
+from pdf_processing import MergeConfig, PageNumberingConfig, merge_pdfs
 
 
 _IS_WSL = "microsoft" in platform.release().lower() or bool(os.environ.get("WSL_DISTRO_NAME"))
@@ -27,12 +29,107 @@ def _initial_browse_dir() -> Path:
     return Path.home()
 
 
+_FONT_EXTENSIONS = {".ttf", ".otf", ".ttc"}
+_DEFAULT_FONT_LABEL = "Helvetica (built-in)"
+
+
+def _candidate_font_dirs() -> list[Path]:
+    system = platform.system().lower()
+    home = Path.home()
+
+    directories: list[Path] = []
+
+    if system == "windows":
+        windows_dir = Path(os.environ.get("WINDIR", "C:\\Windows"))
+        directories.append(windows_dir / "Fonts")
+    elif system == "darwin":
+        directories.extend(
+            [
+                Path("/System/Library/Fonts"),
+                Path("/Library/Fonts"),
+                home / "Library/Fonts",
+            ]
+        )
+    else:
+        directories.extend(
+            [
+                Path("/usr/share/fonts"),
+                Path("/usr/local/share/fonts"),
+                home / ".fonts",
+                home / ".local/share/fonts",
+            ]
+        )
+
+    if _IS_WSL:
+        directories.append(Path("/mnt/c/Windows/Fonts"))
+
+    seen = set()
+    ordered_dirs: list[Path] = []
+    for directory in directories:
+        resolved = directory.expanduser()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        ordered_dirs.append(resolved)
+    return ordered_dirs
+
+
+def _discover_system_fonts() -> list[tuple[str, Path]]:
+    fonts: list[tuple[str, Path]] = []
+    seen_paths: set[Path] = set()
+
+    for directory in _candidate_font_dirs():
+        if not directory.exists():
+            continue
+        try:
+            candidates = sorted(directory.rglob("*"))
+        except (OSError, PermissionError):
+            continue
+        for path in candidates:
+            if path.suffix.lower() not in _FONT_EXTENSIONS or not path.is_file():
+                continue
+            resolved = path.resolve(strict=False)
+            if resolved in seen_paths:
+                continue
+            seen_paths.add(resolved)
+            fonts.append((path.stem, resolved))
+
+    fonts.sort(key=lambda item: item[0].lower())
+    return fonts
+
+
+def _build_font_choice_map() -> OrderedDict[str, Path | None]:
+    choices: OrderedDict[str, Path | None] = OrderedDict()
+    choices[_DEFAULT_FONT_LABEL] = None
+
+    for label, path in _discover_system_fonts():
+        display_label = label
+        suffix = 2
+        while display_label in choices:
+            display_label = f"{label} ({suffix})"
+            suffix += 1
+        choices[display_label] = path
+
+    return choices
+
+
 class PDFMergeApp:
     def __init__(self, master: tk.Tk) -> None:
         self.master = master
         self.master.title("PDF Merge Utility")
 
         self._last_dialog_dir: Path | None = None
+
+        self._position_options = [
+            ("Top left", "top_left"),
+            ("Top center", "top_center"),
+            ("Top right", "top_right"),
+            ("Bottom left", "bottom_left"),
+            ("Bottom center", "bottom_center"),
+            ("Bottom right", "bottom_right"),
+        ]
+        self._font_choice_map = _build_font_choice_map()
+        self._enumeration_controls: list[tuple[tk.Widget, dict[str, str | int]]] = []
 
         self.template_var = tk.StringVar()
         self.input_var = tk.StringVar()
@@ -41,12 +138,25 @@ class PDFMergeApp:
         self.remove_cover_var = tk.BooleanVar(value=True)
         self.delete_template_var = tk.BooleanVar(value=False)
         self.append_only_var = tk.BooleanVar(value=False)
+        self.enumerate_pages_var = tk.BooleanVar(value=False)
+        default_position_label = self._position_options[-1][0]
+        self.page_position_var = tk.StringVar(value=default_position_label)
+
+        initial_font_label = next(iter(self._font_choice_map)) if self._font_choice_map else _DEFAULT_FONT_LABEL
+        self.font_var = tk.StringVar(value=initial_font_label)
+        self.font_size_var = tk.DoubleVar(value=11.0)
+        self.margin_top_var = tk.DoubleVar(value=10.0)
+        self.margin_bottom_var = tk.DoubleVar(value=10.0)
+        self.margin_left_var = tk.DoubleVar(value=10.0)
+        self.margin_right_var = tk.DoubleVar(value=10.0)
 
         self._build_layout()
 
         self.template_var.trace_add("write", self._update_delete_template_state)
         self.output_var.trace_add("write", self._update_delete_template_state)
+        self.enumerate_pages_var.trace_add("write", self._update_numbering_controls)
         self._update_delete_template_state()
+        self._update_numbering_controls()
 
     def _build_layout(self) -> None:
         main_frame = tk.Frame(self.master, padx=10, pady=10)
@@ -106,8 +216,73 @@ class PDFMergeApp:
         )
         self.delete_template_checkbutton.pack(anchor="w")
 
+        numbering_frame = tk.LabelFrame(main_frame, text="Page numbering", padx=10, pady=10)
+        numbering_frame.grid(row=5, column=0, columnspan=3, pady=(15, 0), sticky="ew")
+        numbering_frame.columnconfigure(1, weight=1)
+
+        tk.Checkbutton(
+            numbering_frame,
+            text="Enumerate pages",
+            variable=self.enumerate_pages_var,
+        ).grid(row=0, column=0, columnspan=2, sticky="w")
+
+        tk.Label(numbering_frame, text="Position:").grid(row=1, column=0, sticky="w", pady=(5, 0))
+        position_values = [label for label, _ in self._position_options]
+        position_combo = ttk.Combobox(
+            numbering_frame,
+            textvariable=self.page_position_var,
+            values=position_values,
+            state="readonly",
+        )
+        position_combo.grid(row=1, column=1, sticky="ew", pady=(5, 0))
+        self._enumeration_controls.append(
+            (position_combo, {"enabled": "readonly", "disabled": "disabled"})
+        )
+
+        tk.Label(numbering_frame, text="Font:").grid(row=2, column=0, sticky="w", pady=(5, 0))
+        font_values = list(self._font_choice_map.keys())
+        font_combo = ttk.Combobox(
+            numbering_frame,
+            textvariable=self.font_var,
+            values=font_values,
+            state="readonly",
+        )
+        font_combo.grid(row=2, column=1, sticky="ew", pady=(5, 0))
+        self._enumeration_controls.append(
+            (font_combo, {"enabled": "readonly", "disabled": "disabled"})
+        )
+
+        tk.Label(numbering_frame, text="Size:").grid(row=3, column=0, sticky="w", pady=(5, 0))
+        size_entry = tk.Entry(numbering_frame, textvariable=self.font_size_var, width=10)
+        size_entry.grid(row=3, column=1, sticky="w", pady=(5, 0))
+        self._enumeration_controls.append(
+            (size_entry, {"enabled": tk.NORMAL, "disabled": tk.DISABLED})
+        )
+
+        margins_frame = tk.Frame(numbering_frame)
+        margins_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(5, 0))
+        margins_frame.columnconfigure(1, weight=1)
+        margins_frame.columnconfigure(3, weight=1)
+
+        margin_specs = [
+            ("Top (mm):", self.margin_top_var),
+            ("Bottom (mm):", self.margin_bottom_var),
+            ("Left (mm):", self.margin_left_var),
+            ("Right (mm):", self.margin_right_var),
+        ]
+
+        for index, (label_text, variable) in enumerate(margin_specs):
+            row = index // 2
+            column = (index % 2) * 2
+            tk.Label(margins_frame, text=label_text).grid(row=row, column=column, sticky="w")
+            entry = tk.Entry(margins_frame, textvariable=variable, width=10)
+            entry.grid(row=row, column=column + 1, sticky="w", padx=(5, 10))
+            self._enumeration_controls.append(
+                (entry, {"enabled": tk.NORMAL, "disabled": tk.DISABLED})
+            )
+
         action_frame = tk.Frame(main_frame)
-        action_frame.grid(row=5, column=0, columnspan=3, pady=(15, 0))
+        action_frame.grid(row=6, column=0, columnspan=3, pady=(15, 0))
         tk.Button(action_frame, text="Merge", command=self._on_merge).pack()
 
         for i in range(3):
@@ -126,6 +301,49 @@ class PDFMergeApp:
         entry = tk.Entry(parent, textvariable=variable)
         entry.grid(row=row, column=1, sticky="ew", padx=(5, 5))
         tk.Button(parent, text="Browse", command=command).grid(row=row, column=2)
+
+    def _update_numbering_controls(self, *_: object) -> None:
+        enabled = self.enumerate_pages_var.get()
+        state_key = "enabled" if enabled else "disabled"
+        for widget, states in self._enumeration_controls:
+            widget.config(state=states[state_key])
+
+    def _build_page_numbering_config(self) -> PageNumberingConfig:
+        selected_position = self.page_position_var.get()
+        try:
+            position_value = next(
+                value for label, value in self._position_options if label == selected_position
+            )
+        except StopIteration as exc:
+            raise ValueError("Select a valid page number position.") from exc
+
+        try:
+            font_size = float(self.font_size_var.get())
+            margin_top = float(self.margin_top_var.get())
+            margin_bottom = float(self.margin_bottom_var.get())
+            margin_left = float(self.margin_left_var.get())
+            margin_right = float(self.margin_right_var.get())
+        except (tk.TclError, ValueError) as exc:
+            raise ValueError("Page numbering size and margins must be numeric values.") from exc
+
+        font_label = self.font_var.get()
+        if font_label not in self._font_choice_map:
+            raise ValueError("Select a valid font for page numbering.")
+
+        font_path = self._font_choice_map[font_label]
+
+        try:
+            return PageNumberingConfig(
+                position=position_value,
+                font_path=font_path,
+                font_size=font_size,
+                margin_top_mm=margin_top,
+                margin_bottom_mm=margin_bottom,
+                margin_left_mm=margin_left,
+                margin_right_mm=margin_right,
+            )
+        except Exception as exc:
+            raise ValueError(str(exc)) from exc
 
     def _dialog_initialdir(self) -> str:
         if self._last_dialog_dir and self._last_dialog_dir.exists():
@@ -191,6 +409,14 @@ class PDFMergeApp:
             self.output_var.set(normalized)
 
     def _on_merge(self) -> None:
+        numbering_config: PageNumberingConfig | None = None
+        if self.enumerate_pages_var.get():
+            try:
+                numbering_config = self._build_page_numbering_config()
+            except ValueError as exc:
+                messagebox.showerror("Invalid page numbering", str(exc))
+                return
+
         try:
             config = MergeConfig(
                 template_path=Path(self.template_var.get()).expanduser(),
@@ -200,6 +426,8 @@ class PDFMergeApp:
                 remove_first_page=self.remove_cover_var.get(),
                 delete_template=self.delete_template_var.get(),
                 append_only=self.append_only_var.get(),
+                enumerate_pages=self.enumerate_pages_var.get(),
+                page_numbering=numbering_config,
             )
         except Exception as exc:
             messagebox.showerror("Invalid configuration", str(exc))
