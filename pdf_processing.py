@@ -7,12 +7,66 @@ implementation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
+import os
+import platform
 import shutil
-from typing import List, Optional, Tuple
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+from typing import Iterator, List, Optional, Set, Tuple
 
 import fitz  # PyMuPDF
+
+
+_MM_TO_POINTS = 72.0 / 25.4
+
+_POSITION_SETTINGS = {
+    "top_left": ("top", fitz.TEXT_ALIGN_LEFT),
+    "top_center": ("top", fitz.TEXT_ALIGN_CENTER),
+    "top_right": ("top", fitz.TEXT_ALIGN_RIGHT),
+    "bottom_left": ("bottom", fitz.TEXT_ALIGN_LEFT),
+    "bottom_center": ("bottom", fitz.TEXT_ALIGN_CENTER),
+    "bottom_right": ("bottom", fitz.TEXT_ALIGN_RIGHT),
+}
+
+_FONT_EXTENSIONS = (".ttf", ".otf", ".ttc", ".otc")
+
+
+@dataclass
+class PageNumberingOptions:
+    """Configuration controlling how page numbers are added to PDFs."""
+
+    position: str = "bottom_right"
+    font_name: str = "Helvetica"
+    font_file: Path | None = None
+    font_size: float = 11.0
+    margin_top_mm: float = 10.0
+    margin_bottom_mm: float = 10.0
+    margin_left_mm: float = 10.0
+    margin_right_mm: float = 10.0
+
+    def __post_init__(self) -> None:
+        if isinstance(self.font_file, str):
+            self.font_file = Path(self.font_file)
+
+        if self.font_size <= 0:
+            raise ValueError("font_size must be greater than zero")
+
+        for attr in (
+            "margin_top_mm",
+            "margin_bottom_mm",
+            "margin_left_mm",
+            "margin_right_mm",
+        ):
+            value = getattr(self, attr)
+            if value < 0:
+                raise ValueError(f"{attr} must be greater than or equal to zero")
+
+        normalized = self.position.strip().lower().replace(" ", "_")
+        if normalized not in _POSITION_SETTINGS:
+            valid = ", ".join(sorted(name.replace("_", " ") for name in _POSITION_SETTINGS))
+            raise ValueError(f"position must be one of: {valid}")
+        self.position = normalized
 
 
 @dataclass
@@ -26,10 +80,18 @@ class MergeConfig:
     remove_first_page: bool = True
     delete_template: bool = False
     append_only: bool = False
+    enumerate_pages: bool = False
+    page_numbering: PageNumberingOptions | None = None
 
     def __post_init__(self) -> None:
         if self.scale_percent <= 0:
             raise ValueError("scale_percent must be greater than zero")
+
+        if self.enumerate_pages:
+            if self.page_numbering is None:
+                self.page_numbering = PageNumberingOptions()
+            elif not isinstance(self.page_numbering, PageNumberingOptions):
+                raise TypeError("page_numbering must be a PageNumberingOptions instance")
 
 
 def _with_template_suffix(path: Path) -> Path:
@@ -118,6 +180,9 @@ def merge_pdfs(config: MergeConfig) -> None:
                 remove_first_page=config.remove_first_page,
                 drop_first_template_page=drop_first_template_page,
             )
+
+        if config.enumerate_pages and config.page_numbering is not None:
+            _apply_page_numbers(output_path, config.page_numbering)
     finally:
         # Always remove any temporary templates we created.
         for temp_path in temporary_paths:
@@ -226,4 +291,161 @@ def _append_documents(
         writer.close()
         template_doc.close()
         input_doc.close()
+
+
+def _apply_page_numbers(output_pdf: Path, options: PageNumberingOptions) -> None:
+    """Add page numbers to ``output_pdf`` based on ``options``."""
+
+    temp_path = output_pdf.with_name(f"{output_pdf.stem}_temp_enumerating{output_pdf.suffix}")
+    shutil.copy2(output_pdf, temp_path)
+
+    try:
+        document = fitz.open(str(temp_path))
+        try:
+            for index, page in enumerate(document, start=1):
+                _insert_page_number(page, index, options)
+            document.save(str(output_pdf), incremental=False)
+        finally:
+            document.close()
+    finally:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+
+
+def _insert_page_number(page: fitz.Page, number: int, options: PageNumberingOptions) -> None:
+    vertical, alignment = _POSITION_SETTINGS[options.position]
+    rect = page.rect
+
+    left_margin = options.margin_left_mm * _MM_TO_POINTS
+    right_margin = options.margin_right_mm * _MM_TO_POINTS
+    top_margin = options.margin_top_mm * _MM_TO_POINTS
+    bottom_margin = options.margin_bottom_mm * _MM_TO_POINTS
+
+    available_width = rect.width - left_margin - right_margin
+    if available_width <= 0:
+        raise ValueError("Margins leave no horizontal space for page numbers")
+
+    fontname, fontfile, font_obj = _resolve_font_specification(options)
+    text = str(number)
+    text_width = font_obj.text_length(text, options.font_size)
+
+    if text_width > available_width:
+        raise ValueError("Page number text does not fit within the specified margins")
+
+    if alignment == fitz.TEXT_ALIGN_LEFT:
+        x = rect.x0 + left_margin
+    elif alignment == fitz.TEXT_ALIGN_CENTER:
+        x = rect.x0 + left_margin + (available_width - text_width) / 2
+    else:
+        x = rect.x1 - right_margin - text_width
+
+    if vertical == "top":
+        baseline = rect.y0 + top_margin + font_obj.ascender * options.font_size
+    else:
+        baseline = rect.y1 - bottom_margin + font_obj.descender * options.font_size
+
+    if baseline <= rect.y0:
+        raise ValueError("Margins leave no vertical space for page numbers")
+
+    page.insert_text(
+        (x, baseline),
+        text,
+        fontsize=options.font_size,
+        fontname=fontname,
+        fontfile=fontfile,
+    )
+
+
+def _resolve_font_specification(
+    options: PageNumberingOptions,
+) -> Tuple[str, Optional[str], fitz.Font]:
+    if options.font_file:
+        font_path = Path(options.font_file)
+        sanitized = _sanitize_font_name(options.font_name or font_path.stem)
+        try:
+            font_obj = fitz.Font(fontfile=str(font_path))
+        except RuntimeError as exc:  # pragma: no cover - defensive
+            raise ValueError(f"Unable to load font file: {font_path}") from exc
+        return sanitized, str(font_path), font_obj
+
+    fontname = options.font_name or "Helvetica"
+    font_obj = fitz.Font(fontname=fontname)
+    return fontname, None, font_obj
+
+
+def _sanitize_font_name(name: str) -> str:
+    cleaned = "".join(ch for ch in name if ch.isalnum())
+    return cleaned or "CustomFont"
+
+
+def _font_search_directories() -> List[Path]:
+    system = platform.system().lower()
+    candidates: List[Path] = []
+
+    if system == "windows":
+        windir = Path(os.environ.get("WINDIR", "C:\\Windows"))
+        candidates.append(windir / "Fonts")
+    elif system == "darwin":
+        candidates.extend(
+            [
+                Path("/System/Library/Fonts"),
+                Path("/Library/Fonts"),
+                Path.home() / "Library" / "Fonts",
+            ]
+        )
+    else:
+        candidates.extend(
+            [
+                Path("/usr/share/fonts"),
+                Path("/usr/local/share/fonts"),
+                Path.home() / ".fonts",
+            ]
+        )
+
+    existing: List[Path] = []
+    for candidate in candidates:
+        if candidate.exists():
+            existing.append(candidate)
+    return existing
+
+
+def _iter_font_files() -> Iterator[Path]:
+    seen: Set[Path] = set()
+    for directory in _font_search_directories():
+        for suffix in _FONT_EXTENSIONS:
+            for path in directory.rglob(f"*{suffix}"):
+                try:
+                    resolved = path.resolve()
+                except OSError:
+                    continue
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                yield resolved
+
+
+@lru_cache(maxsize=1)
+def list_available_fonts() -> dict[str, Optional[Path]]:
+    """Return a mapping of available font names to optional file paths."""
+
+    fonts: dict[str, Optional[Path]] = {name: None for name in fitz.Base14_fontnames}
+
+    for font_path in _iter_font_files():
+        try:
+            font = fitz.Font(fontfile=str(font_path))
+        except (RuntimeError, ValueError):
+            continue
+
+        display_name = font.name.strip() or font_path.stem
+        fonts.setdefault(display_name, font_path)
+
+    return dict(sorted(fonts.items(), key=lambda item: item[0].lower()))
+
+
+__all__ = [
+    "MergeConfig",
+    "PageNumberingOptions",
+    "merge_pdfs",
+    "list_available_fonts",
+]
 
