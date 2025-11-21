@@ -12,8 +12,10 @@ from tkinter import filedialog, messagebox
 from pdf_processing import (
     MergeConfig,
     PageNumberingOptions,
+    RoipamOptions,
     list_available_fonts,
     merge_pdfs,
+    process_roipam_folder,
 )
 
 
@@ -52,6 +54,7 @@ class PDFMergeApp:
         self.template_var = tk.StringVar()
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
+        self.roipam_folder_var = tk.StringVar()
         self.scale_var = tk.DoubleVar(value=85.0)
         self.remove_cover_var = tk.BooleanVar(value=True)
         self.delete_template_var = tk.BooleanVar(value=False)
@@ -105,8 +108,16 @@ class PDFMergeApp:
             command=self._select_output,
         )
 
+        self._add_folder_selector(
+            main_frame,
+            row=3,
+            label="ROIPAM folder:",
+            variable=self.roipam_folder_var,
+            command=self._select_roipam_folder,
+        )
+
         scale_frame = tk.Frame(main_frame)
-        scale_frame.grid(row=3, column=0, columnspan=3, pady=(10, 0), sticky="ew")
+        scale_frame.grid(row=4, column=0, columnspan=3, pady=(10, 0), sticky="ew")
         tk.Label(scale_frame, text="Scale (% for both axes):").pack(anchor="w")
         scale_slider = tk.Scale(
             scale_frame,
@@ -119,7 +130,7 @@ class PDFMergeApp:
         scale_slider.pack(fill=tk.X)
 
         options_frame = tk.Frame(main_frame)
-        options_frame.grid(row=4, column=0, columnspan=3, pady=(10, 0), sticky="w")
+        options_frame.grid(row=5, column=0, columnspan=3, pady=(10, 0), sticky="w")
         tk.Checkbutton(
             options_frame,
             text="Remove first page from input",
@@ -138,7 +149,7 @@ class PDFMergeApp:
         self.delete_template_checkbutton.pack(anchor="w")
 
         numbering_frame = tk.LabelFrame(main_frame, text="Page numbering", padx=10, pady=10)
-        numbering_frame.grid(row=5, column=0, columnspan=3, pady=(10, 0), sticky="ew")
+        numbering_frame.grid(row=6, column=0, columnspan=3, pady=(10, 0), sticky="ew")
 
         tk.Checkbutton(
             numbering_frame,
@@ -195,8 +206,9 @@ class PDFMergeApp:
         self._enumerate_widgets.append(right_entry)
 
         action_frame = tk.Frame(main_frame)
-        action_frame.grid(row=6, column=0, columnspan=3, pady=(15, 0))
-        tk.Button(action_frame, text="Merge", command=self._on_merge).pack()
+        action_frame.grid(row=7, column=0, columnspan=3, pady=(15, 0))
+        tk.Button(action_frame, text="Merge", command=self._on_merge).pack(side=tk.LEFT, padx=(0, 5))
+        tk.Button(action_frame, text="Merge ROIPAM", command=self._on_roipam_merge).pack(side=tk.LEFT)
 
         for i in range(3):
             main_frame.columnconfigure(i, weight=1)
@@ -204,6 +216,20 @@ class PDFMergeApp:
         self._update_enumerate_controls()
 
     def _add_file_selector(
+        self,
+        parent: tk.Widget,
+        *,
+        row: int,
+        label: str,
+        variable: tk.StringVar,
+        command,
+    ) -> None:
+        tk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=5)
+        entry = tk.Entry(parent, textvariable=variable)
+        entry.grid(row=row, column=1, sticky="ew", padx=(5, 5))
+        tk.Button(parent, text="Browse", command=command).grid(row=row, column=2)
+
+    def _add_folder_selector(
         self,
         parent: tk.Widget,
         *,
@@ -294,6 +320,16 @@ class PDFMergeApp:
             self._cache_dialog_dir(normalized)
             self.output_var.set(normalized)
 
+    def _select_roipam_folder(self) -> None:
+        path = filedialog.askdirectory(
+            title="Select ROIPAM folder",
+            initialdir=self._dialog_initialdir(),
+        )
+        if path:
+            normalized = self._normalize_dialog_path(path)
+            self._cache_dialog_dir(normalized)
+            self.roipam_folder_var.set(normalized)
+
     def _collect_page_numbering_options(self) -> PageNumberingOptions:
         try:
             font_size = self.enumerate_font_size_var.get()
@@ -357,6 +393,63 @@ class PDFMergeApp:
             return
 
         messagebox.showinfo("Success", f"PDF created at\n{config.output_path}")
+
+    def _on_roipam_merge(self) -> None:
+        folder_raw = self.roipam_folder_var.get().strip()
+        if not folder_raw:
+            messagebox.showerror("Missing folder", "Please select a ROIPAM folder.")
+            return
+
+        page_numbering = None
+        if self.enumerate_pages_var.get():
+            try:
+                page_numbering = self._collect_page_numbering_options()
+            except ValueError as exc:
+                messagebox.showerror("Invalid page numbering", str(exc))
+                return
+
+        try:
+            options = RoipamOptions(
+                scale_percent=self.scale_var.get(),
+                remove_first_page=self.remove_cover_var.get(),
+                append_only=self.append_only_var.get(),
+                enumerate_pages=self.enumerate_pages_var.get(),
+                page_numbering=page_numbering,
+            )
+        except Exception as exc:
+            messagebox.showerror("Invalid configuration", str(exc))
+            return
+
+        folder_path = Path(folder_raw).expanduser()
+        if not folder_path.exists():
+            messagebox.showerror("Missing folder", "Selected ROIPAM folder does not exist.")
+            return
+
+        results = process_roipam_folder(folder_path, options)
+        successes = [result for result in results if result.success]
+        failures = [result for result in results if not result.success]
+
+        if not results:
+            messagebox.showinfo(
+                "No attachments",
+                "No files matching 'Allegato*.pdf' were found in the selected folder.",
+            )
+            return
+
+        summary_lines = [
+            f"Merged: {len(successes)}",
+            f"Failed: {len(failures)}",
+            "Outputs saved in MERGED subfolder.",
+        ]
+        if failures:
+            summary_lines.append("")
+            summary_lines.append("Errors:")
+            for failure in failures:
+                summary_lines.append(
+                    f"- Allegato {failure.allegato_id or '?'}: {failure.message}"
+                )
+
+        messagebox.showinfo("ROIPAM merge complete", "\n".join(summary_lines))
 
     def _update_delete_template_state(self, *_) -> None:
         template_raw = self.template_var.get().strip()

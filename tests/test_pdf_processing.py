@@ -4,7 +4,13 @@ from tempfile import TemporaryDirectory
 
 import fitz
 
-from pdf_processing import MergeConfig, PageNumberingOptions, merge_pdfs
+from pdf_processing import (
+    MergeConfig,
+    PageNumberingOptions,
+    RoipamOptions,
+    merge_pdfs,
+    process_roipam_folder,
+)
 
 
 class MergeSinglePageTemplateTest(unittest.TestCase):
@@ -22,6 +28,82 @@ class MergeSinglePageTemplateTest(unittest.TestCase):
             doc.save(str(path))
         finally:
             doc.close()
+
+    def test_process_roipam_merges_into_subdirectory(self) -> None:
+        base_dir = Path(self._temp_dir.name)
+        cover_path = base_dir / "Project - Allegato A - cover.pdf"
+        annex_path = base_dir / "Allegato A.pdf"
+
+        self._create_pdf(cover_path, ["Cover A"])
+        self._create_pdf(annex_path, ["Annex A"])
+
+        options = RoipamOptions(
+            scale_percent=100.0,
+            remove_first_page=False,
+            append_only=True,
+            enumerate_pages=False,
+        )
+
+        results = process_roipam_folder(base_dir, options)
+
+        self.assertEqual(len(results), 1)
+        result = results[0]
+        self.assertTrue(result.success)
+
+        merged_path = base_dir / "MERGED" / cover_path.name
+        self.assertEqual(result.output_path, merged_path)
+        self.assertTrue(merged_path.exists())
+
+        # Ensure originals remain untouched
+        self.assertTrue(cover_path.exists())
+        self.assertTrue(annex_path.exists())
+
+        merged_doc = fitz.open(str(merged_path))
+        try:
+            self.assertEqual(len(merged_doc), 2)
+            texts = "".join(page.get_text() for page in merged_doc)
+            self.assertIn("Cover A", texts)
+            self.assertIn("Annex A", texts)
+        finally:
+            merged_doc.close()
+
+    def test_process_roipam_duplicates_page_for_allegato_d(self) -> None:
+        base_dir = Path(self._temp_dir.name)
+        cover_path = base_dir / "Cover Allegato D.pdf"
+        annex_path = base_dir / "Allegato D.pdf"
+
+        self._create_pdf(cover_path, ["Cover D"])
+        self._create_pdf(annex_path, ["First", "Second"])
+
+        options = RoipamOptions(
+            scale_percent=100.0,
+            remove_first_page=False,
+            append_only=True,
+            enumerate_pages=False,
+        )
+
+        results = process_roipam_folder(base_dir, options)
+
+        self.assertEqual(len(results), 1)
+        result = results[0]
+        self.assertTrue(result.success)
+
+        merged_doc = fitz.open(str(result.output_path))
+        try:
+            # Cover + duplicated first page + original pages
+            self.assertEqual(len(merged_doc), 4)
+            merged_text = [merged_doc[i].get_text() for i in range(len(merged_doc))]
+            self.assertEqual(merged_text.count(merged_text[1]), 2)
+            self.assertIn("Second", " ".join(merged_text))
+        finally:
+            merged_doc.close()
+
+        # The original annex should remain unchanged
+        original_annex = fitz.open(str(annex_path))
+        try:
+            self.assertEqual(len(original_annex), 2)
+        finally:
+            original_annex.close()
 
     def test_merge_drops_leading_template_page_for_single_page_template(self) -> None:
         template_path = self.base_path / "template.pdf"
