@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 from dataclasses import dataclass
 from functools import lru_cache
@@ -30,6 +31,8 @@ _POSITION_SETTINGS = {
 }
 
 _FONT_EXTENSIONS = (".ttf", ".otf", ".ttc", ".otc")
+
+_ALLEGATO_PATTERN: re.Pattern[str] = re.compile(r"^allegato\s+([A-Za-z0-9]+)", re.IGNORECASE)
 
 
 @dataclass
@@ -94,6 +97,39 @@ class MergeConfig:
                 raise TypeError("page_numbering must be a PageNumberingOptions instance")
 
 
+@dataclass
+class RoipamOptions:
+    """Settings that control ROIPAM batch processing."""
+
+    scale_percent: float = 85.0
+    remove_first_page: bool = True
+    append_only: bool = False
+    enumerate_pages: bool = False
+    page_numbering: PageNumberingOptions | None = None
+
+    def __post_init__(self) -> None:
+        if self.scale_percent <= 0:
+            raise ValueError("scale_percent must be greater than zero")
+
+        if self.enumerate_pages:
+            if self.page_numbering is None:
+                self.page_numbering = PageNumberingOptions()
+            elif not isinstance(self.page_numbering, PageNumberingOptions):
+                raise TypeError("page_numbering must be a PageNumberingOptions instance")
+
+
+@dataclass
+class RoipamMergeResult:
+    """Outcome of a single ROIPAM merge operation."""
+
+    allegato_id: str
+    input_path: Path
+    template_path: Path
+    output_path: Path
+    success: bool
+    message: str = ""
+
+
 def _with_template_suffix(path: Path) -> Path:
     """Return a new path with ``_temp`` appended before the suffix."""
 
@@ -110,6 +146,60 @@ def _prepare_template_copy(template_path: Path) -> Path:
 
     shutil.copy2(template_path, suffixed_path)
     return suffixed_path
+
+
+def _extract_allegato_id(path: Path) -> str | None:
+    match = _ALLEGATO_PATTERN.match(path.name)
+    if not match:
+        return None
+    return match.group(1).strip()
+
+
+def _is_roipam_annex(path: Path) -> bool:
+    return bool(_extract_allegato_id(path))
+
+
+def _iter_cover_candidates(folder: Path, annex_path: Path) -> Iterator[Path]:
+    for candidate in folder.glob("*.[Pp][Dd][Ff]"):
+        if candidate == annex_path:
+            continue
+        if _is_roipam_annex(candidate):
+            continue
+        if candidate.stem.lower().endswith("_temp"):
+            continue
+        yield candidate
+
+
+def _find_roipam_cover(folder: Path, annex_path: Path, allegato_id: str) -> Path | None:
+    preferred = f" - allegato {allegato_id} - ".lower()
+    fallback = f"allegato {allegato_id}".lower()
+
+    candidates = list(_iter_cover_candidates(folder, annex_path))
+
+    for candidate in candidates:
+        if preferred in candidate.name.lower():
+            return candidate
+
+    for candidate in candidates:
+        if fallback in candidate.name.lower():
+            return candidate
+
+    return None
+
+
+def _copy_with_duplicate_first_page(input_pdf: Path, destination: Path) -> None:
+    source = fitz.open(str(input_pdf))
+    duplicated = fitz.open()
+    try:
+        if len(source) == 0:
+            raise ValueError(f"Input PDF is empty: {input_pdf}")
+
+        duplicated.insert_pdf(source, from_page=0, to_page=0)
+        duplicated.insert_pdf(source)
+        duplicated.save(str(destination))
+    finally:
+        duplicated.close()
+        source.close()
 
 
 def _ensure_template_has_multiple_pages(template_path: Path) -> Tuple[Path, Optional[Path]]:
@@ -192,6 +282,112 @@ def merge_pdfs(config: MergeConfig) -> None:
         if config.delete_template and template_path.exists():
             if not needs_temp_copy:
                 template_path.unlink()
+
+
+def process_roipam_folder(folder: Path, options: RoipamOptions) -> List[RoipamMergeResult]:
+    """Merge all ROIPAM attachments within ``folder``.
+
+    The function mirrors the legacy automation script: it pairs each
+    ``Allegato X`` PDF with the corresponding cover, applies special
+    handling for Allegato D and E, and writes the merged output inside a
+    ``MERGED`` subdirectory. Source files are never deleted.
+    """
+
+    if not folder.is_dir():
+        raise ValueError("ROIPAM folder must be an existing directory")
+
+    merged_dir = folder / "MERGED"
+    merged_dir.mkdir(parents=True, exist_ok=True)
+
+    results: List[RoipamMergeResult] = []
+    annexes = sorted(
+        path for path in folder.glob("*.[Pp][Dd][Ff]") if _is_roipam_annex(path)
+    )
+
+    for annex_path in annexes:
+        allegato_id = _extract_allegato_id(annex_path)
+        if not allegato_id:
+            results.append(
+                RoipamMergeResult(
+                    allegato_id="",
+                    input_path=annex_path,
+                    template_path=annex_path,
+                    output_path=merged_dir / annex_path.name,
+                    success=False,
+                    message="Unable to extract allegato ID",
+                )
+            )
+            continue
+
+        cover_path = _find_roipam_cover(folder, annex_path, allegato_id)
+        if cover_path is None:
+            results.append(
+                RoipamMergeResult(
+                    allegato_id=allegato_id,
+                    input_path=annex_path,
+                    template_path=annex_path,
+                    output_path=merged_dir / annex_path.name,
+                    success=False,
+                    message="No matching cover found",
+                )
+            )
+            continue
+
+        output_path = merged_dir / cover_path.name
+        input_for_merge = annex_path
+        temporary_paths: List[Path] = []
+        append_only = options.append_only
+
+        try:
+            allegato_tag = allegato_id.upper()
+            if allegato_tag == "E":
+                append_only = True
+            elif allegato_tag == "D":
+                duplicate_path = folder / f"{annex_path.stem}_roipam_temp{annex_path.suffix}"
+                _copy_with_duplicate_first_page(annex_path, duplicate_path)
+                temporary_paths.append(duplicate_path)
+                input_for_merge = duplicate_path
+
+            config = MergeConfig(
+                template_path=cover_path,
+                input_path=input_for_merge,
+                output_path=output_path,
+                scale_percent=options.scale_percent,
+                remove_first_page=options.remove_first_page,
+                delete_template=False,
+                append_only=append_only,
+                enumerate_pages=options.enumerate_pages,
+                page_numbering=options.page_numbering,
+            )
+
+            merge_pdfs(config)
+        except Exception as exc:  # pragma: no cover - guarded per-attachment
+            results.append(
+                RoipamMergeResult(
+                    allegato_id=allegato_id,
+                    input_path=annex_path,
+                    template_path=cover_path,
+                    output_path=output_path,
+                    success=False,
+                    message=str(exc),
+                )
+            )
+        else:
+            results.append(
+                RoipamMergeResult(
+                    allegato_id=allegato_id,
+                    input_path=annex_path,
+                    template_path=cover_path,
+                    output_path=output_path,
+                    success=True,
+                    message="Merged",
+                )
+            )
+        finally:
+            for temp_path in temporary_paths:
+                temp_path.unlink(missing_ok=True)
+
+    return results
 
 
 def _merge_documents(
@@ -445,7 +641,10 @@ def list_available_fonts() -> dict[str, Optional[Path]]:
 __all__ = [
     "MergeConfig",
     "PageNumberingOptions",
+    "RoipamMergeResult",
+    "RoipamOptions",
     "merge_pdfs",
+    "process_roipam_folder",
     "list_available_fonts",
 ]
 
