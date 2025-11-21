@@ -342,8 +342,8 @@ def process_roipam_folder(folder: Path, options: RoipamOptions) -> List[RoipamMe
         try:
             allegato_tag = allegato_id.upper()
             if allegato_tag == "E":
-                append_only = True
-                remove_first_page = False
+                append_only = False
+                remove_first_page = True
             elif allegato_tag == "D":
                 duplicate_path = folder / f"{annex_path.stem}_roipam_temp{annex_path.suffix}"
                 _copy_with_duplicate_first_page(annex_path, duplicate_path)
