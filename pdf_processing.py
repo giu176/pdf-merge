@@ -337,11 +337,13 @@ def process_roipam_folder(folder: Path, options: RoipamOptions) -> List[RoipamMe
         input_for_merge = annex_path
         temporary_paths: List[Path] = []
         append_only = options.append_only
+        remove_first_page = options.remove_first_page
 
         try:
             allegato_tag = allegato_id.upper()
             if allegato_tag == "E":
                 append_only = True
+                remove_first_page = False
             elif allegato_tag == "D":
                 duplicate_path = folder / f"{annex_path.stem}_roipam_temp{annex_path.suffix}"
                 _copy_with_duplicate_first_page(annex_path, duplicate_path)
@@ -353,7 +355,7 @@ def process_roipam_folder(folder: Path, options: RoipamOptions) -> List[RoipamMe
                 input_path=input_for_merge,
                 output_path=output_path,
                 scale_percent=options.scale_percent,
-                remove_first_page=options.remove_first_page,
+                remove_first_page=remove_first_page,
                 delete_template=False,
                 append_only=append_only,
                 enumerate_pages=options.enumerate_pages,
