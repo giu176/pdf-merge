@@ -173,17 +173,17 @@ class MergeSinglePageTemplateTest(unittest.TestCase):
         finally:
             result_doc.close()
 
-    def test_process_roipam_keeps_allegato_e_page_with_global_removal_enabled(self) -> None:
+    def test_process_roipam_removes_first_page_for_allegato_e(self) -> None:
         base_dir = Path(self._temp_dir.name)
         cover_path = base_dir / "Cover Allegato E.pdf"
         annex_path = base_dir / "Allegato E.pdf"
 
         self._create_pdf(cover_path, ["Cover E"])
-        self._create_pdf(annex_path, ["Annex E"])
+        self._create_pdf(annex_path, ["Front E", "Content E"])
 
         options = RoipamOptions(
             scale_percent=100.0,
-            remove_first_page=True,
+            remove_first_page=False,
             append_only=True,
             enumerate_pages=False,
         )
@@ -196,10 +196,10 @@ class MergeSinglePageTemplateTest(unittest.TestCase):
 
         merged_doc = fitz.open(str(result.output_path))
         try:
-            self.assertEqual(len(merged_doc), 2)
-            merged_text = "".join(page.get_text() for page in merged_doc)
-            self.assertIn("Cover E", merged_text)
-            self.assertIn("Annex E", merged_text)
+            self.assertEqual(len(merged_doc), 1)
+            merged_text = merged_doc[0].get_text()
+            self.assertNotIn("Front E", merged_text)
+            self.assertIn("Content E", merged_text)
         finally:
             merged_doc.close()
 
